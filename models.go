@@ -4,6 +4,7 @@ package redditreadgo
 type PopularitySort string
 
 const (
+	// DefaultPopularity
 	DefaultPopularity        PopularitySort = ""
 	HotSubmissions                          = "hot"
 	NewSubmissions                          = "new"
@@ -16,6 +17,7 @@ const (
 type AgeSort string
 
 const (
+	// ThisHour
 	ThisHour  AgeSort = "hour"
 	ThisDay           = "day"
 	ThisWeek          = "week"
