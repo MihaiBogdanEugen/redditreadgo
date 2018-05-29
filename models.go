@@ -4,17 +4,17 @@ package redditreadgo
 type PopularitySort string
 
 const (
-	// DefaultPopularity
+	// DefaultPopularity value
 	DefaultPopularity PopularitySort = ""
-	// HotSubmissions
+	// HotSubmissions value
 	HotSubmissions = "hot"
-	// NewSubmissions
+	// NewSubmissions value
 	NewSubmissions = "new"
-	// RisingSubmissions
+	// RisingSubmissions value
 	RisingSubmissions = "rising"
-	// TopSubmissions
+	// TopSubmissions value
 	TopSubmissions = "top"
-	// ControversialSubmissions
+	// ControversialSubmissions value
 	ControversialSubmissions = "controversial"
 )
 
@@ -22,16 +22,16 @@ const (
 type AgeSort string
 
 const (
-	// ThisHour
+	// ThisHour value
 	ThisHour AgeSort = "hour"
-	// ThisDay
+	// ThisDay value
 	ThisDay = "day"
-	// ThisWeek
+	// ThisWeek value
 	ThisWeek = "week"
-	//ThisMonth
+	//ThisMonth value
 	ThisMonth = "month"
-	// ThisYear
+	// ThisYear value
 	ThisYear = "year"
-	// AllTime
+	// AllTime value
 	AllTime = "all"
 )
