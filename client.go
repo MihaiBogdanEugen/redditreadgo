@@ -26,8 +26,8 @@ const QueryURL = "https://oauth.reddit.com"
 // DefaultLimit specifies the default no of retrieved submissions
 const DefaultLimit = 100
 
-// ReadOnlyClient represents an OAuth, read-only session with reddit.
-type ReadOnlyClient struct {
+// ReadOnlyRedditClient represents an OAuth, read-only session with reddit.
+type ReadOnlyRedditClient struct {
 	Config      *clientcredentials.Config
 	HTTPClient  *http.Client
 	TokenExpiry time.Time
@@ -36,8 +36,8 @@ type ReadOnlyClient struct {
 	logger      *logrus.Logger
 }
 
-// IReadOnlyClient defines behaviour for an OAuth, read-only session with reddit.
-type IReadOnlyClient interface {
+// IReadOnlyRedditClient defines behaviour for an OAuth, read-only session with reddit.
+type IReadOnlyRedditClient interface {
 
 	// Logger sets the logger. Optional, useful for debugging purposes.
 	Logger(logger *logrus.Logger)
@@ -78,8 +78,8 @@ type IReadOnlyClient interface {
 	doGetRequest(link string, d interface{}) error
 }
 
-// NewReadOnlyClient creates a new session for those who want to log into a reddit account via OAuth.
-func NewReadOnlyClient(clientID string, clientSecret string, userAgent string) *ReadOnlyClient {
+// NewReadOnlyRedditClient creates a new session for those who want to log into a reddit account via OAuth.
+func NewReadOnlyRedditClient(clientID string, clientSecret string, userAgent string) *ReadOnlyRedditClient {
 
 	// Inject our custom HTTP client so that a custom headers can be passed during any authentication requests.
 	httpClient := &http.Client{
@@ -93,7 +93,7 @@ func NewReadOnlyClient(clientID string, clientSecret string, userAgent string) *
 		},
 	}
 
-	return &ReadOnlyClient{
+	return &ReadOnlyRedditClient{
 		Config: &clientcredentials.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
@@ -104,12 +104,12 @@ func NewReadOnlyClient(clientID string, clientSecret string, userAgent string) *
 }
 
 // Logger sets the logger. Optional, useful for debugging purposes.
-func (c *ReadOnlyClient) Logger(logger *logrus.Logger) {
+func (c *ReadOnlyRedditClient) Logger(logger *logrus.Logger) {
 	c.logger = logger
 }
 
 // Throttle sets the interval of each HTTP request. Disable by setting interval to 0. Disabled by default.
-func (c *ReadOnlyClient) Throttle(interval time.Duration) {
+func (c *ReadOnlyRedditClient) Throttle(interval time.Duration) {
 	if interval == 0 {
 		c.throttle = nil
 	} else {
@@ -118,7 +118,7 @@ func (c *ReadOnlyClient) Throttle(interval time.Duration) {
 }
 
 // LoginAuth creates the a new HTTP client, considering custom headers added, with a new access token.
-func (c *ReadOnlyClient) LoginAuth() error {
+func (c *ReadOnlyRedditClient) LoginAuth() error {
 
 	token, err := c.Config.Token(c.ctx)
 	if err != nil {
@@ -145,37 +145,37 @@ func (c *ReadOnlyClient) LoginAuth() error {
 }
 
 // Top100SubmissionsAllTimeTo returns top 100 submissions of all time to given subreddit
-func (c *ReadOnlyClient) Top100SubmissionsAllTimeTo(subreddit string) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) Top100SubmissionsAllTimeTo(subreddit string) ([]*Submission, error) {
 	return c.SubmissionsTo(subreddit, TopSubmissions, AllTime, 100)
 }
 
 // Top100SubmissionsThisYearTo returns top 100 submissions of current year to given subreddit
-func (c *ReadOnlyClient) Top100SubmissionsThisYearTo(subreddit string) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) Top100SubmissionsThisYearTo(subreddit string) ([]*Submission, error) {
 	return c.SubmissionsTo(subreddit, TopSubmissions, ThisYear, 100)
 }
 
 // Top100SubmissionsThisMonthTo returns top 100 submissions of current month to given subreddit
-func (c *ReadOnlyClient) Top100SubmissionsThisMonthTo(subreddit string) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) Top100SubmissionsThisMonthTo(subreddit string) ([]*Submission, error) {
 	return c.SubmissionsTo(subreddit, TopSubmissions, ThisMonth, 100)
 }
 
 // Top100SubmissionsThisWeekTo returns top 100 submissions of current week to given subreddit
-func (c *ReadOnlyClient) Top100SubmissionsThisWeekTo(subreddit string) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) Top100SubmissionsThisWeekTo(subreddit string) ([]*Submission, error) {
 	return c.SubmissionsTo(subreddit, TopSubmissions, ThisWeek, 100)
 }
 
 // Top100SubmissionsThisDayTo returns top 100 submissions of current day to given subreddit
-func (c *ReadOnlyClient) Top100SubmissionsThisDayTo(subreddit string) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) Top100SubmissionsThisDayTo(subreddit string) ([]*Submission, error) {
 	return c.SubmissionsTo(subreddit, TopSubmissions, ThisDay, 100)
 }
 
 // Top100SubmissionsThisHourTo returns top 100 submissions of current hour to given subreddit
-func (c *ReadOnlyClient) Top100SubmissionsThisHourTo(subreddit string) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) Top100SubmissionsThisHourTo(subreddit string) ([]*Submission, error) {
 	return c.SubmissionsTo(subreddit, TopSubmissions, ThisHour, 100)
 }
 
 // SubmissionsTo returns the submissions on the given subreddit, considering popularity sort, age sort and a specified limit
-func (c *ReadOnlyClient) SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, limit int) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, limit int) ([]*Submission, error) {
 	if len(subreddit) == 0 {
 		return nil, errors.New("must specify name of subreddit")
 	}
@@ -217,12 +217,12 @@ func (c *ReadOnlyClient) SubmissionsTo(subreddit string, sort PopularitySort, ag
 }
 
 // Top100SubmissionsOf returns the top submissions on the given author, considering a specified limit
-func (c *ReadOnlyClient) Top100SubmissionsOf(author string) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) Top100SubmissionsOf(author string) ([]*Submission, error) {
 	return c.SubmissionsOf(author, TopSubmissions, 100)
 }
 
 // SubmissionsOf returns the submissions on the given author, considering popularity sort and a specified limit
-func (c *ReadOnlyClient) SubmissionsOf(author string, sort PopularitySort, limit int) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) SubmissionsOf(author string, sort PopularitySort, limit int) ([]*Submission, error) {
 	if len(author) == 0 {
 		return nil, errors.New("must specify name of the author")
 	}
@@ -264,7 +264,7 @@ func (c *ReadOnlyClient) SubmissionsOf(author string, sort PopularitySort, limit
 	return submissions, nil
 }
 
-func (c *ReadOnlyClient) doGetRequest(url string, d interface{}) error {
+func (c *ReadOnlyRedditClient) doGetRequest(url string, d interface{}) error {
 
 	if c.HTTPClient == nil {
 		return errors.New("no HttpClient - use LoginAuth to create one")
