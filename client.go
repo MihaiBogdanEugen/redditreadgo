@@ -280,10 +280,10 @@ func (c *ReadOnlyRedditClient) doGetRequest(url string, d interface{}) error {
 	}
 
 	response, err := c.HTTPClient.Do(request)
-	defer response.Body.Close()
 	if err != nil {
 		return err
 	}
+	defer response.Body.Close()
 
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
