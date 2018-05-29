@@ -12,3 +12,12 @@
 *.out
 
 .idea
+vendor/**/.gitattributes
+vendor/**/.gitignore
+vendor/**/AUTHORS
+vendor/**/CONTRIBUTORS
+vendor/**/CHANGELOG.md
+vendor/**/README.md
+vendor/**/.travis.yml
+vendor/**/appveyor.yml
+vendor/**/Gopkg.*
