@@ -88,7 +88,7 @@ func NewReadOnlyRedditClient(clientID string, clientSecret string, userAgent str
 			Headers: map[string]string{
 				"Accept":     "*/*",
 				"Connection": "keep-alive",
-				"User-Agent": fmt.Sprintf("%s PRAW/5.4.0 prawcore/0.14.0", userAgent),
+				"User-Agent": userAgent,
 			},
 		},
 	}
