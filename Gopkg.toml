@@ -3,6 +3,10 @@
   name = "github.com/beefsack/go-rate"
 
 [[constraint]]
+  branch = "master"
+  name = "github.com/google/go-querystring"
+
+[[constraint]]
   name = "github.com/sirupsen/logrus"
   version = "1.0.5"
 
