@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/beefsack/go-rate"
+	"github.com/google/go-querystring/query"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
@@ -23,8 +23,25 @@ const AccessTokenURL = "https://www.reddit.com/api/v1/access_token"
 // QueryURL specifies default Reddit query URL
 const QueryURL = "https://oauth.reddit.com"
 
-// DefaultLimit specifies the default no of retrieved submissions
-const DefaultLimit = 100
+// ListingOptions represents listings query url parameters
+// More info: https://www.reddit.com/dev/api/
+type ListingOptions struct {
+
+	// Limit - the maximum number of items to return in this slice of the listing.
+	Limit int `url:"limit,omitempty"`
+
+	// After or Before - only one should be specified. These indicate the full name of an item in the listing to use as the anchor point of the slice.
+	After string `url:"after,omitempty"`
+
+	// Before or After - only one should be specified. These indicate the full name of an item in the listing to use as the anchor point of the slice.
+	Before string `url:"before,omitempty"`
+
+	// Count - the number of items already seen in this listing.
+	Count int `url:"count,omitempty"`
+
+	// Show - optional parameter; if all is passed, filters such as "hide links that I have voted on" will be disabled.
+	Show string `url:"show,omitempty"`
+}
 
 // ReadOnlyRedditClient represents an OAuth, read-only session with reddit.
 type ReadOnlyRedditClient struct {
@@ -67,13 +84,13 @@ type IReadOnlyRedditClient interface {
 	Top100SubmissionsThisHourTo(subreddit string) ([]*Submission, error)
 
 	// SubmissionsTo returns the submissions to the given subreddit, considering popularity sort, age sort and a specified limit
-	SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, limit int) ([]*Submission, error)
+	SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, params ListingOptions) ([]*Submission, error)
 
 	// Top100SubmissionsOf returns the top submissions on the given author, considering a specified limit
 	Top100SubmissionsOf(author string) ([]*Submission, error)
 
 	// SubmissionsOf returns the submissions on the given author, considering popularity sort and a specified limit
-	SubmissionsOf(author string, sort PopularitySort, limit int) ([]*Submission, error)
+	SubmissionsOf(author string, sort PopularitySort, params ListingOptions) ([]*Submission, error)
 
 	doGetRequest(link string, d interface{}) error
 }
@@ -146,47 +163,46 @@ func (c *ReadOnlyRedditClient) LoginAuth() error {
 
 // Top100SubmissionsAllTimeTo returns top 100 submissions of all time to given subreddit
 func (c *ReadOnlyRedditClient) Top100SubmissionsAllTimeTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, AllTime, 100)
+	return c.SubmissionsTo(subreddit, TopSubmissions, AllTime, ListingOptions{Limit: 100})
 }
 
 // Top100SubmissionsThisYearTo returns top 100 submissions of current year to given subreddit
 func (c *ReadOnlyRedditClient) Top100SubmissionsThisYearTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisYear, 100)
+	return c.SubmissionsTo(subreddit, TopSubmissions, ThisYear, ListingOptions{Limit: 100})
 }
 
 // Top100SubmissionsThisMonthTo returns top 100 submissions of current month to given subreddit
 func (c *ReadOnlyRedditClient) Top100SubmissionsThisMonthTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisMonth, 100)
+	return c.SubmissionsTo(subreddit, TopSubmissions, ThisMonth, ListingOptions{Limit: 100})
 }
 
 // Top100SubmissionsThisWeekTo returns top 100 submissions of current week to given subreddit
 func (c *ReadOnlyRedditClient) Top100SubmissionsThisWeekTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisWeek, 100)
+	return c.SubmissionsTo(subreddit, TopSubmissions, ThisWeek, ListingOptions{Limit: 100})
 }
 
 // Top100SubmissionsThisDayTo returns top 100 submissions of current day to given subreddit
 func (c *ReadOnlyRedditClient) Top100SubmissionsThisDayTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisDay, 100)
+	return c.SubmissionsTo(subreddit, TopSubmissions, ThisDay, ListingOptions{Limit: 100})
 }
 
 // Top100SubmissionsThisHourTo returns top 100 submissions of current hour to given subreddit
 func (c *ReadOnlyRedditClient) Top100SubmissionsThisHourTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisHour, 100)
+	return c.SubmissionsTo(subreddit, TopSubmissions, ThisHour, ListingOptions{Limit: 100})
 }
 
 // SubmissionsTo returns the submissions on the given subreddit, considering popularity sort, age sort and a specified limit
-func (c *ReadOnlyRedditClient) SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, limit int) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, params ListingOptions) ([]*Submission, error) {
 	if len(subreddit) == 0 {
 		return nil, errors.New("must specify name of subreddit")
 	}
 
-	if limit < 1 {
-		limit = DefaultLimit
+	queryParams, err := query.Values(params)
+	if err != nil {
+		return nil, err
 	}
 
-	queryParams := url.Values{}
 	queryParams.Set("t", string(age))
-	queryParams.Set("limit", strconv.Itoa(limit))
 
 	queryURL := fmt.Sprintf("%s/r/%s/%s.json?%v", QueryURL, subreddit, sort, queryParams.Encode())
 
@@ -203,7 +219,7 @@ func (c *ReadOnlyRedditClient) SubmissionsTo(subreddit string, sort PopularitySo
 	}
 
 	response := new(Response)
-	err := c.doGetRequest(queryURL, response)
+	err = c.doGetRequest(queryURL, response)
 	if err != nil {
 		return nil, err
 	}
@@ -218,22 +234,24 @@ func (c *ReadOnlyRedditClient) SubmissionsTo(subreddit string, sort PopularitySo
 
 // Top100SubmissionsOf returns the top submissions on the given author, considering a specified limit
 func (c *ReadOnlyRedditClient) Top100SubmissionsOf(author string) ([]*Submission, error) {
-	return c.SubmissionsOf(author, TopSubmissions, 100)
+	return c.SubmissionsOf(author, TopSubmissions, ListingOptions{Limit: 100})
 }
 
 // SubmissionsOf returns the submissions on the given author, considering popularity sort and a specified limit
-func (c *ReadOnlyRedditClient) SubmissionsOf(author string, sort PopularitySort, limit int) ([]*Submission, error) {
+func (c *ReadOnlyRedditClient) SubmissionsOf(author string, sort PopularitySort, params ListingOptions) ([]*Submission, error) {
 	if len(author) == 0 {
 		return nil, errors.New("must specify name of the author")
 	}
 
-	if limit < 1 {
-		limit = DefaultLimit
+	queryParams, err := query.Values(params)
+	if err != nil {
+		return nil, err
 	}
 
-	queryParams := url.Values{}
-	queryParams.Set("sort", string(sort))
-	queryParams.Set("limit", strconv.Itoa(limit))
+	if len(sort) > 0 {
+		queryParams.Set("sort", string(sort))
+	}
+
 	queryParams.Set("raw_json", strconv.Itoa(1))
 
 	queryURL := fmt.Sprintf("%s/user/%s/submitted?%v", QueryURL, author, queryParams.Encode())
@@ -251,7 +269,7 @@ func (c *ReadOnlyRedditClient) SubmissionsOf(author string, sort PopularitySort,
 	}
 
 	response := new(Response)
-	err := c.doGetRequest(queryURL, response)
+	err = c.doGetRequest(queryURL, response)
 	if err != nil {
 		return nil, err
 	}
