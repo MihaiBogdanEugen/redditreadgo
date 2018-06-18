@@ -1,56 +1,42 @@
 package redditreadgo
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/beefsack/go-rate"
 	"github.com/google/go-querystring/query"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/clientcredentials"
 )
 
-// AccessTokenURL specifies default Reddit access token URL
-const AccessTokenURL = "https://www.reddit.com/api/v1/access_token"
+// TokenURL specifies default Reddit access token URL
+const TokenURL = "https://www.reddit.com/api/v1/access_token"
 
 // QueryURL specifies default Reddit query URL
 const QueryURL = "https://oauth.reddit.com"
 
-// ListingOptions represents listings query url parameters
-// More info: https://www.reddit.com/dev/api/
-type ListingOptions struct {
-
-	// Limit - the maximum number of items to return in this slice of the listing.
-	Limit int `url:"limit,omitempty"`
-
-	// After or Before - only one should be specified. These indicate the full name of an item in the listing to use as the anchor point of the slice.
-	After string `url:"after,omitempty"`
-
-	// Before or After - only one should be specified. These indicate the full name of an item in the listing to use as the anchor point of the slice.
-	Before string `url:"before,omitempty"`
-
-	// Count - the number of items already seen in this listing.
-	Count int `url:"count,omitempty"`
-
-	// Show - optional parameter; if all is passed, filters such as "hide links that I have voted on" will be disabled.
-	Show string `url:"show,omitempty"`
-}
+const DefaultSliceSize = 100
 
 // ReadOnlyRedditClient represents an OAuth, read-only session with reddit.
 type ReadOnlyRedditClient struct {
-	Config      *clientcredentials.Config
-	HTTPClient  *http.Client
-	TokenExpiry time.Time
-	throttle    *rate.RateLimiter
-	ctx         context.Context
-	logger      *logrus.Logger
+	Token        *oauth2.Token
+	Cookie       *http.Cookie
+	clientID     string
+	clientSecret string
+	userAgent    string
+	throttle     *rate.RateLimiter
+	logger       *logrus.Logger
 }
 
 // IReadOnlyRedditClient defines behaviour for an OAuth, read-only session with reddit.
@@ -62,62 +48,45 @@ type IReadOnlyRedditClient interface {
 	// Throttle sets the interval of each HTTP request. Disable by setting interval to 0. Disabled by default.
 	Throttle(interval time.Duration)
 
-	// LoginAuth creates the a new HTTP client, considering custom headers added, with a new access token.
-	LoginAuth() error
+	// AllSubmissionsTo returns a total no. of submissions to the given subreddit, considering popularity sort and age sort
+	AllSubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, total int) ([]*Submission, error)
 
-	// Top100SubmissionsAllTimeTo returns top 100 submissions of all time to given subreddit
-	Top100SubmissionsAllTimeTo(subreddit string) ([]*Submission, error)
+	// SubmissionsTo returns the submissions to the given subreddit, considering popularity sort, age sort, and listing options
+	SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, params ListingOptions) ([]*Submission, *SliceInfo, error)
 
-	// Top100SubmissionsAllTimeTo returns top 100 submissions of current year to given subreddit
-	Top100SubmissionsThisYearTo(subreddit string) ([]*Submission, error)
+	// AllSubmissionsOf returns a total no. of submissions of the given author, considering popularity sort and age sort
+	AllSubmissionsOf(author string, sort PopularitySort, age AgeSort, total int) ([]*Submission, error)
 
-	// Top100SubmissionsThisMonthTo returns top 100 submissions of current month to given subreddit
-	Top100SubmissionsThisMonthTo(subreddit string) ([]*Submission, error)
-
-	// Top100SubmissionsThisWeekTo returns top 100 submissions of current week to given subreddit
-	Top100SubmissionsThisWeekTo(subreddit string) ([]*Submission, error)
-
-	// Top100SubmissionsThisDayTo returns top 100 submissions of current day to given subreddit
-	Top100SubmissionsThisDayTo(subreddit string) ([]*Submission, error)
-
-	// Top100SubmissionsThisHourTo returns top 100 submissions of current hour to given subreddit
-	Top100SubmissionsThisHourTo(subreddit string) ([]*Submission, error)
-
-	// SubmissionsTo returns the submissions to the given subreddit, considering popularity sort, age sort and a specified limit
-	SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, params ListingOptions) ([]*Submission, error)
-
-	// Top100SubmissionsOf returns the top submissions on the given author, considering a specified limit
-	Top100SubmissionsOf(author string) ([]*Submission, error)
-
-	// SubmissionsOf returns the submissions on the given author, considering popularity sort and a specified limit
-	SubmissionsOf(author string, sort PopularitySort, params ListingOptions) ([]*Submission, error)
-
-	doGetRequest(link string, d interface{}) error
+	// SubmissionsOf returns the submissions of the given author, considering popularity sort, age sort, and listing options
+	SubmissionsOf(author string, sort PopularitySort, age AgeSort, params ListingOptions) ([]*Submission, *SliceInfo, error)
 }
 
 // NewReadOnlyRedditClient creates a new session for those who want to log into a reddit account via OAuth.
-func NewReadOnlyRedditClient(clientID string, clientSecret string, userAgent string) *ReadOnlyRedditClient {
+func NewReadOnlyRedditClient(clientID string, clientSecret string, userAgent string) (*ReadOnlyRedditClient, error) {
 
-	// Inject our custom HTTP client so that a custom headers can be passed during any authentication requests.
-	httpClient := &http.Client{
-		Transport: &CustomHttpTransport{
-			RoundTripper: http.DefaultTransport,
-			Headers: map[string]string{
-				"Accept":     "*/*",
-				"Connection": "keep-alive",
-				"User-Agent": userAgent,
-			},
-		},
+	if len(clientID) == 0 {
+		return nil, errors.New("clientId must not be null, nor empty")
 	}
 
-	return &ReadOnlyRedditClient{
-		Config: &clientcredentials.Config{
-			ClientID:     clientID,
-			ClientSecret: clientSecret,
-			TokenURL:     AccessTokenURL,
-		},
-		ctx: context.WithValue(context.Background(), oauth2.HTTPClient, httpClient),
+	if len(clientSecret) == 0 {
+		return nil, errors.New("clientSecret must not be null, nor empty")
 	}
+
+	if len(userAgent) == 0 {
+		return nil, errors.New("userAgent must not be null, nor empty")
+	}
+
+	client := &ReadOnlyRedditClient{
+		clientID:     clientID,
+		clientSecret: clientSecret,
+		userAgent:    userAgent,
+	}
+
+	if err := client.loginAuth(); err != nil {
+		return nil, err
+	}
+
+	return client, nil
 }
 
 // Logger sets the logger. Optional, useful for debugging purposes.
@@ -134,94 +103,45 @@ func (c *ReadOnlyRedditClient) Throttle(interval time.Duration) {
 	}
 }
 
-// LoginAuth creates the a new HTTP client, considering custom headers added, with a new access token.
-func (c *ReadOnlyRedditClient) LoginAuth() error {
-
-	token, err := c.Config.Token(c.ctx)
-	if err != nil {
-		return err
-	}
-	if !token.Valid() {
-		msg := "Invalid OAuth token"
-		if token != nil {
-			if extra := token.Extra("error"); extra != nil {
-				msg = fmt.Sprintf("%s: %s", msg, extra)
-			}
-		}
-		return errors.New(msg)
-	}
-
-	if c.logger != nil {
-		c.logger.Debugf("got %s access token expiring at %v", token.TokenType, token.Expiry)
-	}
-
-	c.TokenExpiry = token.Expiry
-	c.HTTPClient = c.Config.Client(c.ctx)
-
-	return nil
+// AllSubmissionsTo returns a total no. of submissions to the given subreddit, considering popularity sort and age sort
+func (c *ReadOnlyRedditClient) AllSubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, total int) ([]*Submission, error) {
+	return c.getAllSubmissions(subreddit, sort, age, total, c.SubmissionsTo)
 }
 
-// Top100SubmissionsAllTimeTo returns top 100 submissions of all time to given subreddit
-func (c *ReadOnlyRedditClient) Top100SubmissionsAllTimeTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, AllTime, ListingOptions{Limit: 100})
-}
+// SubmissionsTo returns the submissions on the given subreddit, considering popularity sort, age sort, and listing options
+func (c *ReadOnlyRedditClient) SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, params ListingOptions) ([]*Submission, *SliceInfo, error) {
 
-// Top100SubmissionsThisYearTo returns top 100 submissions of current year to given subreddit
-func (c *ReadOnlyRedditClient) Top100SubmissionsThisYearTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisYear, ListingOptions{Limit: 100})
-}
-
-// Top100SubmissionsThisMonthTo returns top 100 submissions of current month to given subreddit
-func (c *ReadOnlyRedditClient) Top100SubmissionsThisMonthTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisMonth, ListingOptions{Limit: 100})
-}
-
-// Top100SubmissionsThisWeekTo returns top 100 submissions of current week to given subreddit
-func (c *ReadOnlyRedditClient) Top100SubmissionsThisWeekTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisWeek, ListingOptions{Limit: 100})
-}
-
-// Top100SubmissionsThisDayTo returns top 100 submissions of current day to given subreddit
-func (c *ReadOnlyRedditClient) Top100SubmissionsThisDayTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisDay, ListingOptions{Limit: 100})
-}
-
-// Top100SubmissionsThisHourTo returns top 100 submissions of current hour to given subreddit
-func (c *ReadOnlyRedditClient) Top100SubmissionsThisHourTo(subreddit string) ([]*Submission, error) {
-	return c.SubmissionsTo(subreddit, TopSubmissions, ThisHour, ListingOptions{Limit: 100})
-}
-
-// SubmissionsTo returns the submissions on the given subreddit, considering popularity sort, age sort and a specified limit
-func (c *ReadOnlyRedditClient) SubmissionsTo(subreddit string, sort PopularitySort, age AgeSort, params ListingOptions) ([]*Submission, error) {
 	if len(subreddit) == 0 {
-		return nil, errors.New("must specify name of subreddit")
+		return nil, nil, errors.New("subreddit cannot be null nor empty")
 	}
 
 	queryParams, err := query.Values(params)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	queryParams.Set("t", string(age))
+	queryParams.Set("raw_json", strconv.Itoa(1))
 
-	queryURL := fmt.Sprintf("%s/r/%s/%s.json?%v", QueryURL, subreddit, sort, queryParams.Encode())
-
-	if c.logger != nil {
-		c.logger.Debugf("queryURL = %s", queryURL)
-	}
+	queryURL := fmt.Sprintf("%s/r/%s/%s?%v", QueryURL, subreddit, sort, queryParams.Encode())
 
 	type Response struct {
+		Kind string
 		Data struct {
+			Dist     int
 			Children []struct {
+				Kind string
 				Data *Submission
 			}
+			After  string
+			Before string
 		}
 	}
 
 	response := new(Response)
 	err = c.doGetRequest(queryURL, response)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	submissions := make([]*Submission, len(response.Data.Children))
@@ -229,49 +149,55 @@ func (c *ReadOnlyRedditClient) SubmissionsTo(subreddit string, sort PopularitySo
 		submissions[index] = child.Data
 	}
 
-	return submissions, nil
+	return submissions, &SliceInfo{Before: response.Data.Before, After: response.Data.After}, nil
 }
 
-// Top100SubmissionsOf returns the top submissions on the given author, considering a specified limit
-func (c *ReadOnlyRedditClient) Top100SubmissionsOf(author string) ([]*Submission, error) {
-	return c.SubmissionsOf(author, TopSubmissions, ListingOptions{Limit: 100})
+// AllSubmissionsOf returns a total no. of submissions of the given author, considering popularity sort and age sort
+func (c *ReadOnlyRedditClient) AllSubmissionsOf(author string, sort PopularitySort, age AgeSort, total int) ([]*Submission, error) {
+	return c.getAllSubmissions(author, sort, age, total, c.SubmissionsOf)
 }
 
-// SubmissionsOf returns the submissions on the given author, considering popularity sort and a specified limit
-func (c *ReadOnlyRedditClient) SubmissionsOf(author string, sort PopularitySort, params ListingOptions) ([]*Submission, error) {
+// SubmissionsOf returns the submissions on the given author, considering popularity sort, age sort, and listing options
+func (c *ReadOnlyRedditClient) SubmissionsOf(author string, sort PopularitySort, age AgeSort, params ListingOptions) ([]*Submission, *SliceInfo, error) {
+
 	if len(author) == 0 {
-		return nil, errors.New("must specify name of the author")
+		return nil, nil, errors.New("author cannot be null nor empty")
+	}
+
+	if params.Limit > 100 && c.logger != nil {
+		c.logger.Debug("max limit is 100 results - should one need more, `after` or `before` for pagination")
 	}
 
 	queryParams, err := query.Values(params)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if len(sort) > 0 {
 		queryParams.Set("sort", string(sort))
 	}
-
+	queryParams.Set("t", string(age))
 	queryParams.Set("raw_json", strconv.Itoa(1))
 
 	queryURL := fmt.Sprintf("%s/user/%s/submitted?%v", QueryURL, author, queryParams.Encode())
 
-	if c.logger != nil {
-		c.logger.Debugf("queryURL = %s", queryURL)
-	}
-
 	type Response struct {
+		Kind string
 		Data struct {
+			Dist     int
 			Children []struct {
+				Kind string
 				Data *Submission
 			}
+			After  string
+			Before string
 		}
 	}
 
 	response := new(Response)
 	err = c.doGetRequest(queryURL, response)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	submissions := make([]*Submission, len(response.Data.Children))
@@ -279,17 +205,65 @@ func (c *ReadOnlyRedditClient) SubmissionsOf(author string, sort PopularitySort,
 		submissions[index] = child.Data
 	}
 
-	return submissions, nil
+	return submissions, &SliceInfo{Before: response.Data.Before, After: response.Data.After}, nil
+}
+
+func (c *ReadOnlyRedditClient) getAllSubmissions(subredditOrAuthor string, sort PopularitySort, age AgeSort, total int, fn func(string, PopularitySort, AgeSort, ListingOptions) ([]*Submission, *SliceInfo, error)) ([]*Submission, error) {
+	if total <= DefaultSliceSize {
+		if submissions, _, err := fn(subredditOrAuthor, sort, age, ListingOptions{Limit: total}); err != nil {
+			return nil, err
+		} else {
+			return submissions, nil
+		}
+	}
+
+	var results []*Submission
+	after := ""
+
+	for {
+		submissions, slice, err := fn(subredditOrAuthor, sort, age, ListingOptions{
+			After: after,
+			Limit: DefaultSliceSize,
+		})
+
+		if err != nil {
+			return nil, err
+		}
+
+		for _, submission := range submissions {
+			results = append(results, submission)
+		}
+
+		if len(results) >= total || len(submissions) == 0 {
+			break
+		}
+
+		after = slice.After
+	}
+
+	return results, nil
 }
 
 func (c *ReadOnlyRedditClient) doGetRequest(url string, d interface{}) error {
 
-	if c.HTTPClient == nil {
-		return errors.New("no HttpClient - use LoginAuth to create one")
+	if c.logger != nil {
+		c.logger.Debugf("doing GET to %s", url)
 	}
 
 	if c.throttle != nil {
+		if c.logger != nil {
+			c.logger.Debugf("must wait")
+		}
 		c.throttle.Wait()
+	}
+
+	if c.Token.Expiry.Before(time.Now().Add(5 * time.Second)) {
+		if c.logger != nil {
+			c.logger.Debugf("token expired, must fetch a new one")
+		}
+		if err := c.refreshLoginAuth(); err != nil {
+			return err
+		}
 	}
 
 	request, err := http.NewRequest("GET", url, nil)
@@ -297,21 +271,161 @@ func (c *ReadOnlyRedditClient) doGetRequest(url string, d interface{}) error {
 		return err
 	}
 
-	response, err := c.HTTPClient.Do(request)
+	request.Header.Set("Accept", "*/*")
+	request.Header.Set("Accept-Encoding", "gzip, deflate")
+	request.Header.Set("Authorization", "bearer "+c.Token.AccessToken)
+	if c.Cookie != nil {
+		request.Header.Set("Cookie", c.Cookie.Name+":"+c.Cookie.Value)
+	}
+	request.Header.Set("Connection", "keep-alive")
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("User-Agent", c.userAgent)
+
+	client := &http.Client{}
+	response, err := client.Do(request)
 	if err != nil {
 		return err
 	}
 	defer response.Body.Close()
 
-	body, err := ioutil.ReadAll(response.Body)
+	if code := response.StatusCode; code < 200 || code > 299 {
+		return fmt.Errorf("cannot do get request, status: %v", response.Status)
+	}
+
+	contentType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil {
 		return err
 	}
 
-	err = json.Unmarshal(body, d)
+	if contentType != "application/json" {
+		return fmt.Errorf("unknown response content type: %s", contentType)
+	}
+
+	reader, err := gzip.NewReader(response.Body)
 	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	responseBody, err := ioutil.ReadAll(io.LimitReader(reader, 1<<20))
+	if err != nil {
+		return fmt.Errorf("cannot read body of response: %v", err)
+	}
+
+	if err = json.Unmarshal(responseBody, d); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (c *ReadOnlyRedditClient) loginAuth() error {
+
+	token, cookie, err := c.retrieveTokenAndCookie(url.Values{
+		"grant_type": {"client_credentials"},
+	})
+
+	if err != nil {
+		return err
+	}
+
+	c.Token = token
+	c.Cookie = cookie
+
+	return nil
+}
+
+func (c *ReadOnlyRedditClient) refreshLoginAuth() error {
+
+	if len(c.Token.RefreshToken) == 0 {
+		return errors.New("oauth2: token expired and refresh token is not set")
+	}
+
+	token, cookie, err := c.retrieveTokenAndCookie(url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {c.Token.RefreshToken},
+	})
+
+	if err != nil {
+		return err
+	}
+
+	c.Token = token
+	c.Cookie = cookie
+
+	return nil
+}
+
+func (c *ReadOnlyRedditClient) retrieveTokenAndCookie(values url.Values) (*oauth2.Token, *http.Cookie, error) {
+
+	requestBody := strings.NewReader(values.Encode())
+	request, err := http.NewRequest("POST", TokenURL, requestBody)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	request.SetBasicAuth(url.QueryEscape(c.clientID), url.QueryEscape(c.clientSecret))
+	request.Header.Set("Accept", "*/*")
+	request.Header.Set("Connection", "keep-alive")
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("User-Agent", c.userAgent)
+
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer response.Body.Close()
+
+	if code := response.StatusCode; code < 200 || code > 299 {
+		return nil, nil, fmt.Errorf("oauth2: cannot fetch token, status: %v", response.Status)
+	}
+
+	contentType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if contentType != "application/json" {
+		return nil, nil, fmt.Errorf("unknown response content type: %s", contentType)
+	}
+
+	responseBody, err := ioutil.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return nil, nil, fmt.Errorf("oauth2: cannot read body of response: %v", err)
+	}
+
+	var tokenAsJSON TokenAsJSON
+	if err = json.Unmarshal(responseBody, &tokenAsJSON); err != nil {
+		return nil, nil, err
+	}
+
+	token := &oauth2.Token{
+		AccessToken:  tokenAsJSON.AccessToken,
+		TokenType:    tokenAsJSON.TokenType,
+		RefreshToken: tokenAsJSON.RefreshToken,
+		Expiry:       time.Now().Add(time.Duration(tokenAsJSON.ExpiresIn) * time.Second),
+	}
+
+	if len(token.RefreshToken) == 0 {
+		token.RefreshToken = values.Get("refresh_token")
+	}
+
+	if len(token.AccessToken) == 0 {
+		return token, nil, errors.New("oauth2: server response missing access_token")
+	}
+
+	if c.logger != nil {
+		c.logger.Debugf("got %s access token expiring at %v", token.TokenType, token.Expiry)
+	}
+
+	var correctCookie *http.Cookie = nil
+	cookies := response.Cookies()
+	for _, cookie := range cookies {
+		if cookie.Name == "edgebucket" {
+			correctCookie = cookie
+			break
+		}
+	}
+	return token, correctCookie, nil
 }
