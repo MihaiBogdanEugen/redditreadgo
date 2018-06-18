@@ -29,7 +29,7 @@
   branch = "master"
   name = "golang.org/x/crypto"
   packages = ["ssh/terminal"]
-  revision = "a8fb68e7206f8c78be19b432c58eb52a6aa34462"
+  revision = "027cca12c2d63e3d62b670d901e8a2c95854feec"
 
 [[projects]]
   branch = "master"
@@ -45,10 +45,9 @@
   name = "golang.org/x/oauth2"
   packages = [
     ".",
-    "clientcredentials",
     "internal"
   ]
-  revision = "1e0a3fa8ba9a5c9eb35c271780101fdaf1b205d7"
+  revision = "113ce6928c4638e14fd5eba69b9e6ec899d5dd83"
 
 [[projects]]
   branch = "master"
@@ -76,6 +75,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "de210062ea5fee6c17c123427eaad32dc55920a9a1c1390ee6902532b0be78ef"
+  inputs-digest = "ad979f3afc582a0cb33cbcc9f4fcd6a2a9f69e48121b4b11ea3e21da3aa341aa"
   solver-name = "gps-cdcl"
   solver-version = 1
