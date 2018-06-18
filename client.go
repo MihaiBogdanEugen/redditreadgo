@@ -26,7 +26,7 @@ const TokenURL = "https://www.reddit.com/api/v1/access_token"
 // QueryURL specifies default Reddit query URL
 const QueryURL = "https://oauth.reddit.com"
 
-// Default slice of submission retrieved when querying
+// DefaultSliceSize specifies the size of the slice of submission retrieved when querying
 const DefaultSliceSize = 100
 
 // ReadOnlyRedditClient represents an OAuth, read-only session with reddit.
@@ -275,7 +275,7 @@ func (c *ReadOnlyRedditClient) doGetRequest(url string, d interface{}) error {
 	request.Header.Set("Accept", "*/*")
 	request.Header.Set("Accept-Encoding", "gzip, deflate")
 	request.Header.Set("Authorization", "bearer "+c.Token.AccessToken)
-	if c.Cookie != nil {
+	if c.Cookie != nil && len(c.Cookie.Name) > 0 && len(c.Cookie.Value) > 0 {
 		request.Header.Set("Cookie", c.Cookie.Name+":"+c.Cookie.Value)
 	}
 	request.Header.Set("Connection", "keep-alive")

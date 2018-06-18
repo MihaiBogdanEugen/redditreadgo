@@ -36,6 +36,7 @@ const (
 	AllTime AgeSort = "all"
 )
 
+// Region represents the possible values for querying by region
 type Region string
 
 const (
