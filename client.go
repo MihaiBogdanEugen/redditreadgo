@@ -26,6 +26,7 @@ const TokenURL = "https://www.reddit.com/api/v1/access_token"
 // QueryURL specifies default Reddit query URL
 const QueryURL = "https://oauth.reddit.com"
 
+// Default slice of submission retrieved when querying
 const DefaultSliceSize = 100
 
 // ReadOnlyRedditClient represents an OAuth, read-only session with reddit.
@@ -210,11 +211,11 @@ func (c *ReadOnlyRedditClient) SubmissionsOf(author string, sort PopularitySort,
 
 func (c *ReadOnlyRedditClient) getAllSubmissions(subredditOrAuthor string, sort PopularitySort, age AgeSort, total int, fn func(string, PopularitySort, AgeSort, ListingOptions) ([]*Submission, *SliceInfo, error)) ([]*Submission, error) {
 	if total <= DefaultSliceSize {
-		if submissions, _, err := fn(subredditOrAuthor, sort, age, ListingOptions{Limit: total}); err != nil {
+		submissions, _, err := fn(subredditOrAuthor, sort, age, ListingOptions{Limit: total})
+		if err != nil {
 			return nil, err
-		} else {
-			return submissions, nil
 		}
+		return submissions, nil
 	}
 
 	var results []*Submission
@@ -312,11 +313,7 @@ func (c *ReadOnlyRedditClient) doGetRequest(url string, d interface{}) error {
 		return fmt.Errorf("cannot read body of response: %v", err)
 	}
 
-	if err = json.Unmarshal(responseBody, d); err != nil {
-		return err
-	}
-
-	return nil
+	return json.Unmarshal(responseBody, d)
 }
 
 func (c *ReadOnlyRedditClient) loginAuth() error {
@@ -419,7 +416,7 @@ func (c *ReadOnlyRedditClient) retrieveTokenAndCookie(values url.Values) (*oauth
 		c.logger.Debugf("got %s access token expiring at %v", token.TokenType, token.Expiry)
 	}
 
-	var correctCookie *http.Cookie = nil
+	var correctCookie *http.Cookie
 	cookies := response.Cookies()
 	for _, cookie := range cookies {
 		if cookie.Name == "edgebucket" {

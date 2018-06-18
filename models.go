@@ -79,6 +79,7 @@ type TokenAsJSON struct {
 	ExpiresIn int32 `json:"expires_in"`
 }
 
+// SliceInfo represents after and before pointers for retrieving the next slice of submissions
 type SliceInfo struct {
 	After  string
 	Before string
